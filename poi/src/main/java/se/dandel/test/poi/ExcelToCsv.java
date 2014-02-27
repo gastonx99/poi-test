@@ -7,6 +7,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
+import org.apache.poi.ss.formula.OperationEvaluationContext;
+import org.apache.poi.ss.formula.eval.ErrorEval;
+import org.apache.poi.ss.formula.eval.EvaluationException;
+import org.apache.poi.ss.formula.eval.OperandResolver;
+import org.apache.poi.ss.formula.eval.StringEval;
+import org.apache.poi.ss.formula.eval.ValueEval;
+import org.apache.poi.ss.formula.functions.FreeRefFunction;
+import org.apache.poi.ss.formula.udf.AggregatingUDFFinder;
+import org.apache.poi.ss.formula.udf.DefaultUDFFinder;
+import org.apache.poi.ss.formula.udf.UDFFinder;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.DateUtil;
@@ -28,13 +38,37 @@ public class ExcelToCsv {
         this.os = os;
     }
 
+    public void toCsv(int index) throws Exception {
+        Workbook workbook = WorkbookFactory.create(is);
+        addToolpack(workbook);
+        this.formatter = new DataFormatter(true);
+        this.evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+        Sheet sheet = workbook.getSheetAt(index);
+        int lastRowNum = sheet.getLastRowNum();
+        for (int i1 = 0; i1 <= lastRowNum && i1 < 330; i1++) {
+            List<String> rowToCsv = rowToCsv(sheet.getRow(i1));
+            if ((i1 % 100) == 0) {
+                System.out.println("Row " + i1 + "\t" + rowToCsv);
+            }
+        }
+    }
+
+    private void addToolpack(Workbook workbook) {
+        String[] functionNames = { "PersonnummerBeraknaKontrollsiffra" };
+        FreeRefFunction[] functionImpls = { new CalculatePersorgnrCheckDigit() };
+
+        UDFFinder udfs = new DefaultUDFFinder(functionNames, functionImpls);
+        UDFFinder udfToolpack = new AggregatingUDFFinder(udfs);
+        workbook.addToolPack(udfToolpack);
+    }
+
     public void readAndWrite() throws InvalidFormatException, IOException {
         Workbook workbook = WorkbookFactory.create(is);
         this.formatter = new DataFormatter(true);
         this.evaluator = workbook.getCreationHelper().createFormulaEvaluator();
         Sheet sheet = workbook.getSheet("poi");
         int lastRowNum = sheet.getLastRowNum();
-        for (int i1 = 1; i1 <= lastRowNum; i1++) {
+        for (int i1 = 0; i1 <= lastRowNum; i1++) {
             List<String> rowToCsv = rowToCsv(sheet.getRow(i1));
             System.out.println("Row " + i1 + "\t" + rowToCsv);
         }
@@ -61,9 +95,13 @@ public class ExcelToCsv {
                     csvLine.add("");
                 } else {
                     if (cell.getCellType() != Cell.CELL_TYPE_FORMULA) {
-                        if (DateUtil.isCellDateFormatted(cell)) {
+                        if (cell.getCellType() == Cell.CELL_TYPE_NUMERIC && DateUtil.isCellDateFormatted(cell)) {
+                            System.out.println(cell.getCellStyle().getDataFormat() + "\t"
+                                    + cell.getCellStyle().getDataFormatString());
+                            csvLine.add("*" + this.formatter.formatCellValue(cell));
+                        } else {
+                            csvLine.add(this.formatter.formatCellValue(cell));
                         }
-                        csvLine.add(this.formatter.formatCellValue(cell));
                     } else {
                         csvLine.add(this.formatter.formatCellValue(cell, this.evaluator));
                     }
@@ -73,4 +111,24 @@ public class ExcelToCsv {
         return csvLine;
     }
 
+    public static class CalculatePersorgnrCheckDigit implements FreeRefFunction {
+
+        @Override
+        public ValueEval evaluate(ValueEval[] args, OperationEvaluationContext ec) {
+            if (args.length != 1) {
+                return ErrorEval.VALUE_INVALID;
+            }
+            try {
+                ValueEval v1 = OperandResolver.getSingleValue(args[0], ec.getRowIndex(), ec.getColumnIndex());
+
+                String persorgnr = OperandResolver.coerceValueToString(v1);
+                return new StringEval(String.valueOf(PersorgnrUtil.calculateCheckDigit(persorgnr)));
+
+            } catch (EvaluationException e) {
+                e.printStackTrace();
+                return e.getErrorEval();
+            }
+        }
+
+    }
 }

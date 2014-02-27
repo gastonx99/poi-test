@@ -16,4 +16,12 @@ public class ExcelToCsvTest {
         excelToCsv.readAndWrite();
     }
 
+    @Test
+    public void large() throws Exception {
+        InputStream is = getClass().getResourceAsStream("/StortExcelbladTest.xlsm");
+        OutputStream os = new ByteArrayOutputStream();
+        ExcelToCsv excelToCsv = new ExcelToCsv(is, os);
+        excelToCsv.toCsv(3);
+    }
+
 }
